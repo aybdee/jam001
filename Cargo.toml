@@ -1,0 +1,9 @@
+[package]
+name = "jam001"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+egui = "0.28.1"
+roxmltree = "0.20.0"
+ureq = "2.10.1"
