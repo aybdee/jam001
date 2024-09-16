@@ -79,6 +79,15 @@ impl HTMLParser {
         }
     }
 
+    fn next_while_inc(&mut self, cond: impl Fn(char) -> bool) -> String {
+        let mut result = String::new();
+        while self.peek().is_some() && cond(self.peek().unwrap()) {
+            result.push(self.next().unwrap());
+        }
+        result.push(self.next().unwrap());
+        result
+    }
+
     fn next_while(&mut self, cond: impl Fn(char) -> bool) -> String {
         let mut result = String::new();
         while self.peek().is_some() && cond(self.peek().unwrap()) {
@@ -127,10 +136,29 @@ impl HTMLParser {
                     Some(HTMLToken::CloseTag(
                         tag.chars().filter(|c| c.is_alphanumeric()).collect(),
                     ))
+                } else if t.starts_with("<!") {
+                    //check if it's a comment or "directive"
+                    if t.starts_with("<!--") {
+                        //comment so skip completely
+                        self.next_while_inc(|c| c != '>');
+                        None
+                    } else {
+                        //directive
+                        let name = "directive";
+                        let mut attributes: HashMap<String, String> = HashMap::new();
+                        //skip all the non alphanumeric characters
+                        self.next_while(|c| !c.is_alphanumeric());
+                        let text = self.next_while(|c| c != '>');
+                        self.next(); //skip the >
+                        attributes.insert("text".to_string(), text);
+                        Some(HTMLToken::SelfClose(TagMeta {
+                            name: name.to_string(),
+                            attributes,
+                        }))
+                    }
                 } else {
                     //remove the <
                     self.next();
-
                     //check for attributes
                     let name = self.next_while(|c| c.is_alphanumeric());
                     let mut attributes = HashMap::new();
@@ -144,8 +172,7 @@ impl HTMLParser {
                         let seperator = self.next_while(|c| !c.is_alphanumeric());
                         //check if attribute is quoted
                         if seperator.contains('"') {
-                            let attr_value = self.next_while(|c| c != '"');
-                            self.next(); //skip the "
+                            let attr_value = self.next_while_inc(|c| c != '"');
                             attributes.insert(attr_name, attr_value);
                         } else {
                             let attr_value = self.next_while(|c| c.is_alphanumeric());
@@ -190,6 +217,8 @@ impl HTMLParser {
         let mut stack: Vec<Node> = vec![];
         let mut traversed: Vec<Node> = vec![];
         for token in tokens {
+            // println!("token - {:#?}", token);
+            // println!("stack - {:#?}", stack);
             match token {
                 HTMLToken::OpenTag(tag) => {
                     let element = Node::element(ElementData {
@@ -218,22 +247,24 @@ impl HTMLParser {
                 }
 
                 HTMLToken::SelfClose(tag) => {
-                    let element = Node::element(ElementData {
-                        tag_name: tag.name,
-                        attributes: tag.attributes,
-                        children: vec![],
-                    });
+                    if !tag.name.is_empty() {
+                        let element = Node::element(ElementData {
+                            tag_name: tag.name,
+                            attributes: tag.attributes,
+                            children: vec![],
+                        });
 
-                    let parent = stack.last_mut();
-                    match parent {
-                        Some(parent) => {
-                            if let Node::Element(parent_element) = parent {
-                                parent_element.children.push(element);
+                        let parent = stack.last_mut();
+                        match parent {
+                            Some(parent) => {
+                                if let Node::Element(parent_element) = parent {
+                                    parent_element.children.push(element);
+                                }
                             }
-                        }
 
-                        None => {
-                            traversed.push(element);
+                            None => {
+                                traversed.push(element);
+                            }
                         }
                     }
                 }
@@ -262,6 +293,7 @@ impl HTMLParser {
         let mut tokens = vec![];
         while self.peek().is_some() {
             let token = self.next_token();
+            // println!("token - {:#?}", token);
             if let Some(n) = token {
                 tokens.push(n);
             }
@@ -273,9 +305,14 @@ impl HTMLParser {
         let mut unclosed_tokens: Vec<usize> = vec![];
         let mut invalid_tokens: Vec<usize> = vec![];
         for (index, token) in tokens.iter().enumerate() {
+            // println!("token - {:#?}", token);
             match token {
                 HTMLToken::OpenTag(tag) => {
-                    token_stack.push((index, &tag.name));
+                    if tag.name.is_empty() {
+                        invalid_tokens.push(index);
+                    } else {
+                        token_stack.push((index, &tag.name));
+                    }
                 }
                 HTMLToken::CloseTag(tag) => {
                     if !token_stack.is_empty() {

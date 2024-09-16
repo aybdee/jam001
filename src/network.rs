@@ -1,4 +1,4 @@
-use ureq::{Agent, AgentBuilder, Response};
+use ureq::{Agent, AgentBuilder};
 
 pub struct BrowserClient {
     agent: Agent,
